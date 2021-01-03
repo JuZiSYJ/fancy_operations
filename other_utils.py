@@ -65,5 +65,9 @@ def draw_and_save():
     plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
     plt.cla()
     plt.close()
+    
+def calcul_mac():
+    ## https://github.com/zhijian-liu/torchprofile    accurate
+    ## https://github.com/Lyken17/pytorch-OpCounter
 if __name__ == '__main__':
     pass
