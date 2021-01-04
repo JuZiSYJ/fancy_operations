@@ -49,6 +49,8 @@ def mul_thread():
     for t in T:
         t.setDaemon(True)
         t.start()
+    for t in T:
+        ## https://www.cnblogs.com/my8100/p/7366567.html
         t.join()
 
 
