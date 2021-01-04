@@ -214,5 +214,48 @@ def mkdir(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
+
+class LPIPS(torch.nn.Module):
+    """Learned Perceptual Image Patch Similarity.
+    Args:
+        if_spatial: return a score or a map of scores.
+        im: cv2 loaded images, or ([RGB] H W), [0, 1] CUDA tensor.
+    https://github.com/richzhang/PerceptualSimilarity
+
+    ref = cv2.imread('test.bmp')
+    # 0.012859745882451534  for [-10,10],
+    # #0.001899  for [-5,5], less is better
+    im = cv2.imread('test.bmp') + np.random.randint(-5,5,size=ref.shape)
+    lpips = LPIPS()
+    score1  = lpips(ref, im)
+    print(score1)
+
+    """
+    def __init__(self, net='alex', if_spatial=False, if_cuda=False):
+        super().__init__()
+        import lpips
+
+        self.lpips_fn = lpips.LPIPS(net=net, spatial=if_spatial)
+        if if_cuda:
+            self.lpips_fn.cuda()
+
+    def _preprocess(self, inp, mode):
+        if mode == 'im':
+            im = inp[:, :, ::-1]  # (H W BGR) -> (H W RGB)
+            im = im / (255. / 2.)  - 1.
+            im = im[..., np.newaxis]  # (H W RGB 1)
+            im = im.transpose(3, 2, 0, 1)  # (B=1 C=RGB H W)
+            out = torch.Tensor(im)
+        elif mode == 'tensor':
+            out = inp * 2. - 1.
+        return out
+
+    def forward(self, ref, im):
+        mode = 'im' if ref.dtype == np.uint8 else 'tensor'
+        ref = self._preprocess(ref, mode=mode)
+        im = self._preprocess(im, mode=mode)
+        lpips_score = self.lpips_fn.forward(ref, im)
+        return lpips_score.item()
+
 if __name__ == '__main__':
     pass

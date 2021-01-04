@@ -69,6 +69,7 @@ def draw_and_save():
     plt.close()
     
 def calcul_mac():
+    pass
     ## https://github.com/zhijian-liu/torchprofile    accurate
     ## https://github.com/Lyken17/pytorch-OpCounter
 if __name__ == '__main__':
