@@ -306,59 +306,5 @@ def psnrb(target, input):
     return total / input.shape[1]
 
 
-def parse_yaml():
-    '''
-    a typical yaml:
-    #### general settings
-
-name: 01_IRN+_DB_x4_scratch_DIV2K
-use_tb_logger: true
-model: IRN+
-distortion: sr
-scale: 4
-gpu_ids: [0]
-lr: !!float 1e-4
-is: ~
-
-#### datasets
-
-datasets:
-  train:
-    name: DIV2K
-    mode: LQGT
-    dataroot_GT: /home/forrest/Downloads/data/syj/DIV2K/DIV2K_train_HR_sub/ # path to training HR images
-    dataroot_LQ: ~ # path to training reference LR images, not necessary, if not provided, LR images will be generated in dataloader
-
-    use_shuffle: true
-    n_workers: 4  # per GPU
-    batch_size: 8
-    GT_size: 144
-    use_flip: true
-    use_rot: true
-    color: RGB
-
-  val:
-    name: val_DIV2K
-    mode: LQGT
-
-    :return:
-    '''
-    path = 'train_IRN+_x4.yml'
-    # opt = yaml.load(path)
-    with open(path, mode='r') as f:
-        opt = yaml.load(f, Loader=yaml.Loader)
-    print(opt)
-    # print(opt.)
-    '''{'name': '01_IRN+_DB_x4_scratch_DIV2K', 'use_tb_logger': True, 'model': 'IRN+', \
-    'distortion': 'sr', 'scale': 4, 'gpu_ids': [0], 'lr":1e-4, 'is': None, datasets': {'train': {'na
-    '''
-
-    for phase, dataset in opt['datasets'].items():
-        if dataset.get('dataroot_GT', None) is not None:
-            pass
-
-    # pass
-
-
 if __name__ == '__main__':
     pass
