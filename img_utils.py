@@ -22,7 +22,7 @@ import os
 from io import BytesIO
 from torch import nn
 import torch.nn.functional as F
-
+import yaml
 # convert 2/3/4-dimensional torch tensor to uint
 def tensor2uint(img):
     img = img.data.squeeze().float().clamp_(0, 1).cpu().numpy()
@@ -256,6 +256,109 @@ class LPIPS(torch.nn.Module):
         im = self._preprocess(im, mode=mode)
         lpips_score = self.lpips_fn.forward(ref, im)
         return lpips_score.item()
+
+
+def blocking_effect_factor(im):
+    block_size = 8
+
+    block_horizontal_positions = torch.arange(7,im.shape[3]-1,8)
+    block_vertical_positions = torch.arange(7,im.shape[2]-1,8)
+
+    horizontal_block_difference = ((im[:, :, :, block_horizontal_positions] - im[:, :, :, block_horizontal_positions + 1])**2).sum(3).sum(2).sum(1)
+    vertical_block_difference = ((im[:, :, block_vertical_positions, :] - im[:, :, block_vertical_positions + 1, :])**2).sum(3).sum(2).sum(1)
+
+    nonblock_horizontal_positions = np.setdiff1d(torch.arange(0,im.shape[3]-1), block_horizontal_positions)
+    nonblock_vertical_positions = np.setdiff1d(torch.arange(0,im.shape[2]-1), block_vertical_positions)
+
+    horizontal_nonblock_difference = ((im[:, :, :, nonblock_horizontal_positions] - im[:, :, :, nonblock_horizontal_positions + 1])**2).sum(3).sum(2).sum(1)
+    vertical_nonblock_difference = ((im[:, :, nonblock_vertical_positions, :] - im[:, :, nonblock_vertical_positions + 1, :])**2).sum(3).sum(2).sum(1)
+
+    n_boundary_horiz = im.shape[2] * (im.shape[3]//block_size - 1)
+    n_boundary_vert = im.shape[3] * (im.shape[2]//block_size - 1)
+    boundary_difference = (horizontal_block_difference + vertical_block_difference) / (n_boundary_horiz + n_boundary_vert)
+
+    n_nonboundary_horiz = im.shape[2] * (im.shape[3] - 1) - n_boundary_horiz
+    n_nonboundary_vert = im.shape[3] * (im.shape[2] - 1) - n_boundary_vert
+    nonboundary_difference = (horizontal_nonblock_difference + vertical_nonblock_difference) / (n_nonboundary_horiz + n_nonboundary_vert)
+
+    scaler = np.log2(block_size) / np.log2(min([im.shape[2], im.shape[3]]))
+    bef = scaler * (boundary_difference - nonboundary_difference)
+
+    bef[boundary_difference <= nonboundary_difference] = 0
+    return bef
+
+
+def psnrb(target, input):
+    '''
+    https://gitlab.com/Queuecumber/quantization-guided-ac/-/blob/master/metrics/psnrb.py
+    :param target:
+    :param input:
+    :return:
+    '''
+    total = 0
+    for c in range(input.shape[1]):
+        mse = torch.nn.functional.mse_loss(input[:, c:c+1, :, :], target[:, c:c+1, :, :], reduction='none')
+        bef = blocking_effect_factor(input[:, c:c+1, :, :])
+
+        mse = mse.view(mse.shape[0], -1).mean(1)
+        total += 10 * torch.log10(1 / (mse + bef))
+
+    return total / input.shape[1]
+
+
+def parse_yaml():
+    '''
+    a typical yaml:
+    #### general settings
+
+name: 01_IRN+_DB_x4_scratch_DIV2K
+use_tb_logger: true
+model: IRN+
+distortion: sr
+scale: 4
+gpu_ids: [0]
+lr: !!float 1e-4
+is: ~
+
+#### datasets
+
+datasets:
+  train:
+    name: DIV2K
+    mode: LQGT
+    dataroot_GT: /home/forrest/Downloads/data/syj/DIV2K/DIV2K_train_HR_sub/ # path to training HR images
+    dataroot_LQ: ~ # path to training reference LR images, not necessary, if not provided, LR images will be generated in dataloader
+
+    use_shuffle: true
+    n_workers: 4  # per GPU
+    batch_size: 8
+    GT_size: 144
+    use_flip: true
+    use_rot: true
+    color: RGB
+
+  val:
+    name: val_DIV2K
+    mode: LQGT
+
+    :return:
+    '''
+    path = 'train_IRN+_x4.yml'
+    # opt = yaml.load(path)
+    with open(path, mode='r') as f:
+        opt = yaml.load(f, Loader=yaml.Loader)
+    print(opt)
+    # print(opt.)
+    '''{'name': '01_IRN+_DB_x4_scratch_DIV2K', 'use_tb_logger': True, 'model': 'IRN+', \
+    'distortion': 'sr', 'scale': 4, 'gpu_ids': [0], 'lr":1e-4, 'is': None, datasets': {'train': {'na
+    '''
+
+    for phase, dataset in opt['datasets'].items():
+        if dataset.get('dataroot_GT', None) is not None:
+            pass
+
+    # pass
+
 
 if __name__ == '__main__':
     pass
