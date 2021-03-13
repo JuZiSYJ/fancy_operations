@@ -107,6 +107,167 @@ def minpool(feat, ksize, stride=1):
     out  = out.unsqueeze(1)
     return out
 
+class DCT(nn.Module):
+    def __init__(self, N = 8, in_channal = 3):
+        super(DCT, self).__init__()
+
+        self.N = N  # default is 8 for JPEG
+        self.fre_len = N * N
+        self.in_channal = in_channal
+        self.out_channal =  N * N * in_channal
+        # self.weight = torch.from_numpy(self.mk_coff(N = N)).float().unsqueeze(1)
+
+
+        # 3 H W -> N*N  H/N  W/N
+        self.dct_conv = nn.Conv2d(self.in_channal, self.out_channal, N, N, bias=False, groups=self.in_channal)
+
+        # 64 *1 * 8 * 8, from low frequency to high fre
+        self.weight = torch.from_numpy(self.mk_coff(N = N)).float().unsqueeze(1)
+        # self.dct_conv = nn.Conv2d(1, self.out_channal, N, N, bias=False)
+        self.dct_conv.weight.data = torch.cat([self.weight]*self.in_channal, dim=0) # 64 1 8 8
+        self.dct_conv.weight.requires_grad = False
+
+
+
+        # self.reDCT = nn.ConvTranspose2d(self.out_channal, 1, self.N,  self.N, bias = False)
+        # self.reDCT.weight.data = self.weight
+
+
+
+
+
+
+    def forward(self, x):
+        # jpg = (jpg * self.std) + self.mean # 0-1
+        '''
+        x:  B C H W, 0-1. RGB
+        YCbCr:  b c h w, YCBCR
+        DCT: B C*64 H//8 W//8 ,   Y_L..Y_H  Cb_L...Cb_H   Cr_l...Cr_H
+        '''
+        dct = self.dct_conv(x)
+        return dct
+
+    def mk_coff(self, N = 8, rearrange = True):
+        dct_weight = np.zeros((N*N, N, N))
+        for k in range(N*N):
+            u = k // N
+            v = k % N
+            for i in range(N):
+                for j in range(N):
+                    tmp1 = self.get_1d(i, u, N=N)
+                    tmp2 = self.get_1d(j, v, N=N)
+                    tmp = tmp1 * tmp2
+                    tmp = tmp * self.get_c(u, N=N) * self.get_c(v, N=N)
+
+                    dct_weight[k, i, j] += tmp
+        if rearrange:
+            out_weight = self.get_order(dct_weight, N = N)  # from low frequency to high frequency
+        return out_weight # (N*N) * N * N
+
+    def get_1d(self, ij, uv, N=8):
+        result = math.cos(math.pi * uv * (ij + 0.5) / N)
+        return result
+
+    def get_c(self, u, N=8):
+        if u == 0:
+            return math.sqrt(1 / N)
+        else:
+            return math.sqrt(2 / N)
+
+    def get_order(self, src_weight, N = 8):
+        array_size = N * N
+        # order_index = np.zeros((N, N))
+        i = 0
+        j = 0
+        rearrange_weigth = src_weight.copy() # (N*N) * N * N
+        for k in range(array_size - 1):
+            if (i == 0 or i == N-1) and  j % 2 == 0:
+                j += 1
+            elif (j == 0 or j == N-1) and i % 2 == 1:
+                i += 1
+            elif (i + j) % 2 == 1:
+                i += 1
+                j -= 1
+            elif (i + j) % 2 == 0:
+                i -= 1
+                j += 1
+            index = i * N + j
+            rearrange_weigth[k+1, ...] = src_weight[index, ...]
+        return rearrange_weigth
+
+class ReDCT(nn.Module):
+    def __init__(self, N = 4, in_channal = 3):
+        super(ReDCT, self).__init__()
+
+        self.N = N  # default is 8 for JPEG
+        self.in_channal = in_channal * N * N
+        self.out_channal = in_channal
+        self.fre_len = N * N
+
+        self.weight = torch.from_numpy(self.mk_coff(N=N)).float().unsqueeze(1)
+
+
+        self.reDCT = nn.ConvTranspose2d(self.in_channal, self.out_channal, self.N,  self.N, bias = False, groups=self.out_channal)
+        self.reDCT.weight.data = torch.cat([self.weight]*self.out_channal, dim=0)
+        self.reDCT.weight.requires_grad = False
+
+
+    def forward(self, dct):
+        '''
+        IDCT  from DCT domain to pixle domain
+        B C*64 H//8 W//8   ->   B C H W
+        '''
+        out = self.reDCT(dct)
+        return out
+
+    def mk_coff(self, N = 8, rearrange = True):
+        dct_weight = np.zeros((N*N, N, N))
+        for k in range(N*N):
+            u = k // N
+            v = k % N
+            for i in range(N):
+                for j in range(N):
+                    tmp1 = self.get_1d(i, u, N=N)
+                    tmp2 = self.get_1d(j, v, N=N)
+                    tmp = tmp1 * tmp2
+                    tmp = tmp * self.get_c(u, N=N) * self.get_c(v, N=N)
+
+                    dct_weight[k, i, j] += tmp
+        if rearrange:
+            out_weight = self.get_order(dct_weight, N = N)  # from low frequency to high frequency
+        return out_weight # (N*N) * N * N
+
+    def get_1d(self, ij, uv, N=8):
+        result = math.cos(math.pi * uv * (ij + 0.5) / N)
+        return result
+
+    def get_c(self, u, N=8):
+        if u == 0:
+            return math.sqrt(1 / N)
+        else:
+            return math.sqrt(2 / N)
+
+    def get_order(self, src_weight, N = 8):
+        array_size = N * N
+        # order_index = np.zeros((N, N))
+        i = 0
+        j = 0
+        rearrange_weigth = src_weight.copy() # (N*N) * N * N
+        for k in range(array_size - 1):
+            if (i == 0 or i == N-1) and  j % 2 == 0:
+                j += 1
+            elif (j == 0 or j == N-1) and i % 2 == 1:
+                i += 1
+            elif (i + j) % 2 == 1:
+                i += 1
+                j -= 1
+            elif (i + j) % 2 == 0:
+                i -= 1
+                j += 1
+            index = i * N + j
+            rearrange_weigth[k+1, ...] = src_weight[index, ...]
+        return rearrange_weigth
+
 
 
 if __name__ == '__main__':
