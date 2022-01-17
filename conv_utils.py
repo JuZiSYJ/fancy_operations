@@ -18,7 +18,7 @@ import os
 from io import BytesIO
 from torch import nn
 import torch.nn.functional as F
-
+from matplotlib import  pyplot as plt
 
 class MeanShift(nn.Conv2d):
     '''
@@ -51,6 +51,9 @@ def conv_implement_by_unfold():
         w.view(w.size(0), -1).t()).transpose(1, 2)
 
 class dct(nn.Module):
+    '''
+    zhihu version of dct
+    '''
     def __init__(self):
         super(dct, self).__init__()
 
@@ -196,7 +199,7 @@ class DCT(nn.Module):
         return rearrange_weigth
 
 class ReDCT(nn.Module):
-    def __init__(self, N = 4, in_channal = 3):
+    def __init__(self, N = 8, in_channal = 3):
         super(ReDCT, self).__init__()
 
         self.N = N  # default is 8 for JPEG
@@ -268,7 +271,7 @@ class ReDCT(nn.Module):
             rearrange_weigth[k+1, ...] = src_weight[index, ...]
         return rearrange_weigth
 
-    def conv_merge():
+def conv_merge():
     '''
     1*1  +  3*3  ->  3*3,  no bias
     :return:
@@ -322,5 +325,98 @@ def conv_merge2():
     print(torch.sum(torch.abs(out - out2)), out, out2) # tensor(5.4640, grad_fn=<SumBackward0>)
 
 
+def test_dct():
+    '''
+    new version of DCT
+    :return:
+    '''
+    N = 8  # The block size of DCT ,default is 8
+    fre_len = N *N
+    Test_DCT  = DCT(N=N)
+    Inverse_DCT = ReDCT(N=N)
+    img = np.array(Image.open('test.bmp')) / 255.0
+
+    img_tensor = torch.tensor(img).float().unsqueeze(0).permute(0,3,1,2) #   BCHW
+
+    # from RGB to DCT domain,  [R_L1, R_L2, .... R_H, G_L1, G_L2, G_H,..], channels is 64 *3
+    dct_ = Test_DCT(img_tensor)
+    print(dct_.shape)
+    print('N:{}   DCT shape:{}'.format(N, dct_.shape))
+
+    # rgb_  = Test_DCT.reverse(dct_) # should be same as img
+    rgb_  = Inverse_DCT(dct_)
+
+    rgb_ = rgb_.detach().permute(0, 2, 3, 1).squeeze(0).numpy()
+
+    # k_list = [1, 5, 15, 25]
+    # k_list = [1/fre_len, 0.25, 0.5, 0.7]
+    k_list = [1/64, 1/16, 1/2] # high_compress, reserve only R_L1,G_L1,B_L1; XXX
+    img_list = []
+
+
+    k_start = int(k_list[0] * fre_len)
+    # for i in range(len(k_list)):
+    # k_end =  # only save low k frequency, reduce high frequency
+    dct_k = dct_.clone()
+    for i in range(3):  # RGB
+
+
+        dct_k[0, fre_len*i+k_start:fre_len*i+fre_len, ...] = 0 # remove high frequency info
+
+    rgb = Inverse_DCT(dct_k) # lost [k,63] high frequencys
+
+    rgb = rgb.detach().permute(0,2,3,1).squeeze(0).numpy() # h w c
+
+    img_list.append(rgb)
+
+    k_end = k_start
+    k_start = int(k_list[1] * fre_len)
+    dct_k = dct_.clone()
+    for i in range(3): # RGB
+
+
+        dct_k[0, fre_len*i+k_start:fre_len*i+fre_len, ...] = 0
+
+    rgb = Inverse_DCT(dct_k) # lost [k,63] high frequencys
+
+
+    rgb = rgb.detach().permute(0,2,3,1).squeeze(0).numpy() # h w c
+
+    img_list.append(rgb)
+
+
+
+    dct_k = dct_.clone()
+    k_start = int(k_list[2] * fre_len)
+    for i in range(3):
+
+
+        dct_k[0, fre_len*i+k_start:fre_len*i+fre_len, ...] = 0
+        # dct_k[0, fre_len*i+0:fre_len*i+k_end, ...] = 0
+    # rgb = Test_DCT.reverse(dct_k) # lost [k,63] high frequencys
+    rgb = Inverse_DCT(dct_k) # lost [k,63] high frequencys
+    rgb = rgb.detach().permute(0,2,3,1).squeeze(0).numpy() # h w c
+
+    img_list.append(rgb)
+
+
+
+
+    plt.subplot(2,3,1)
+    plt.imshow(img)
+
+    plt.subplot(2,3,2)
+    plt.title('keep all frequency')
+    plt.imshow(rgb_)  # reverse, should be same
+
+    title = ['high_comp', 'median_comp', 'low_comp']
+    for i, (k_ratio,img) in enumerate(zip(k_list, img_list)):
+        plt.subplot(2,3,3+i)
+        # plt.title('only keep low {} frequency'.format(int(k_ratio * fre_len)))
+        plt.title('{}'.format(title[i]))
+        plt.imshow(img)
+    plt.savefig('frequency_filter.png',dpi=500)
+    plt.show()
+
 if __name__ == '__main__':
-    pass
+    test_dct()
